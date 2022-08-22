@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/consistent-indexed-object-style */
 
 type AnyObject = Record<string, any>;
-type Deinit = delegate.Subscription | Observer | MutationObserver | ResizeObserver | IntersectionObserver | VoidFunction;
+type DeinitHandle = {disconnect: VoidFunction} | {clear: VoidFunction} | {destroy: VoidFunction} | {abort: VoidFunction} | VoidFunction;
+type Deinit = DeinitHandle | DeinitHandle[];
 
 type FeatureID = string & {feature: true};
 interface FeatureMeta {
@@ -15,6 +16,9 @@ interface Window {
 }
 
 declare module 'markdown-wasm/dist/markdown.node.js';
+declare module 'filter-altered-clicks' {
+	export default function filterAlteredClicks<Listener>(handler: Listener): Listener;
+}
 
 declare module 'size-plugin';
 
@@ -30,13 +34,14 @@ interface GlobalEventHandlersEventMap {
 	'menu:activated': CustomEvent;
 	'pjax:error': CustomEvent;
 	'page:loaded': CustomEvent;
-	'pjax:start': CustomEvent;
+	'turbo:visit': CustomEvent;
 	'session:resume': CustomEvent;
 	'socket:message': CustomEvent;
 	'input': InputEvent; // Remove once no longer necessary (2022?)
 }
 
 declare namespace JSX {
+	/* eslint-disable @typescript-eslint/no-redundant-type-constituents -- https://github.com/refined-github/refined-github/pull/5654#discussion_r878891540 */
 	interface IntrinsicElements {
 		'clipboard-copy': IntrinsicElements.button & {for?: string};
 		'details-dialog': IntrinsicElements.div & {tabindex: string};
@@ -47,8 +52,10 @@ declare namespace JSX {
 		'label': IntrinsicElements.label & {for?: string};
 		'relative-time': IntrinsicElements.div & {datetime: string};
 		'tab-container': IntrinsicElements.div;
+		'batch-deferred-content': IntrinsicElements.div;
 		'time-ago': IntrinsicElements.div & {datetime: string; format?: string};
 	}
+	/* eslint-enable @typescript-eslint/no-redundant-type-constituents */
 
 	type BaseElement = IntrinsicElements['div'];
 	interface IntrinsicAttributes extends BaseElement {

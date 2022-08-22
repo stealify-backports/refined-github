@@ -6,37 +6,20 @@ import * as pageDetect from 'github-url-detection';
 
 import features from '.';
 import getDefaultBranch from '../github-helpers/get-default-branch';
+import createDropdownItem from '../github-helpers/create-dropdown-item';
 import {buildRepoURL, getCurrentCommittish} from '../github-helpers';
 
-export function createDropdownItem(label: string, url: string, attributes?: Record<string, string>): Element {
-	return (
-		<li {...attributes}>
-			<a role="menuitem" className="dropdown-item" href={url}>
-				{label}
-			</a>
-		</li>
-	);
-}
+export async function unhideOverflowDropdown(): Promise<boolean> {
+	// Wait for the tab bar to be loaded
+	const repoNavigationBar = await elementReady('.UnderlineNav-body');
 
-export function onlyShowInDropdown(id: string): void {
-	const tabItem = select(`[data-tab-item$="${id}"]`);
-	if (!tabItem && pageDetect.isEnterprise()) { // GHE #3962
-		return;
+	// No dropdown on mobile #5781
+	if (!select.exists('.js-responsive-underlinenav')) {
+		return false;
 	}
 
-	(tabItem!.closest('li') ?? tabItem!.closest('.UnderlineNav-item'))!.classList.add('d-none');
-
-	const menuItem = select(`[data-menu-item$="${id}"]`)!;
-	menuItem.removeAttribute('data-menu-item');
-	menuItem.hidden = false;
-	// The item has to be moved somewhere else because the overflow nav is order-dependent
-	select('.js-responsive-underlinenav-overflow ul')!.append(menuItem);
-}
-
-export async function unhideOverflowDropdown(): Promise<void> {
-	// Wait for the tab bar to be loaded
-	const repoNavigationBar = (await elementReady('.UnderlineNav-body'))!;
-	repoNavigationBar.parentElement!.classList.add('rgh-has-more-dropdown');
+	repoNavigationBar!.parentElement!.classList.add('rgh-has-more-dropdown');
+	return true;
 }
 
 async function init(): Promise<void> {
@@ -47,7 +30,9 @@ async function init(): Promise<void> {
 	const dependenciesUrl = buildRepoURL('network/dependencies');
 	await unhideOverflowDropdown();
 
-	select('.js-responsive-underlinenav-overflow ul')!.append(
+	// Wait for the nav dropdown to be loaded #5244
+	const repoNavigationDropdown = await elementReady('.UnderlineNav-actions ul');
+	repoNavigationDropdown!.append(
 		<li className="dropdown-divider" role="separator"/>,
 		createDropdownItem('Compare', compareUrl),
 		pageDetect.isEnterprise() ? '' : createDropdownItem('Dependencies', dependenciesUrl),
@@ -62,6 +47,9 @@ void features.add(import.meta.url, {
 	],
 	exclude: [
 		pageDetect.isEmptyRepo,
+
+		// No dropdown on mobile #5781
+		() => !select.exists('.js-responsive-underlinenav'),
 	],
 	awaitDomReady: false,
 	init,

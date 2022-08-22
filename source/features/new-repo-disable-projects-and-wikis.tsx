@@ -6,6 +6,9 @@ import * as pageDetect from 'github-url-detection';
 
 import features from '.';
 import * as api from '../github-helpers/api';
+import selectHas from '../helpers/select-has';
+
+const documentation = 'https://github.com/refined-github/refined-github/wiki/Extended-feature-descriptions#new-repo-disable-projects-and-wikis';
 
 async function disableWikiAndProjects(): Promise<void> {
 	delete sessionStorage.rghNewRepo;
@@ -18,10 +21,10 @@ async function disableWikiAndProjects(): Promise<void> {
 		},
 	});
 	await domLoaded;
-	select('[data-content="Wiki"]')?.closest('li')!.remove();
 	select('[data-menu-item$="wiki-tab"]')?.remove();
-	select('[data-content="Projects"]')?.closest('li')!.remove();
 	select('[data-menu-item$="projects-tab"]')?.remove();
+	selectHas('li:has([data-content="Wiki"]')?.remove();
+	selectHas('li:has([data-content="Projects"])')?.remove();
 }
 
 function setStorage(): void {
@@ -30,28 +33,30 @@ function setStorage(): void {
 	}
 }
 
-async function init(): Promise<Deinit> {
+async function init(signal: AbortSignal): Promise<void> {
 	await api.expectToken();
 
 	select.last([
 		'.js-repo-init-setting-container', // IsNewRepo
 		'.form-checkbox', // IsNewRepoTemplate
 	])!.after(
-		<div className="form-checkbox checked mt-0 mb-3">
-			<label>
-				<input
-					checked
-					type="checkbox"
-					id="rgh-disable-project"
-				/> Disable Projects and Wikis
-			</label>
-			<span className="note mb-2">
-				After creating the repository disable the projects and wiki.
-			</span>
+		<div className="flash flash-warn py-0">
+			<div className="form-checkbox checked">
+				<label>
+					<input
+						checked
+						type="checkbox"
+						id="rgh-disable-project"
+					/> Disable Projects and Wikis
+				</label>
+				<span className="note mb-2">
+					After creating the repository disable the projects and wiki. <a href={documentation} target="_blank" rel="noreferrer">Suggestion by Refined GitHub.</a>
+				</span>
+			</div>
 		</div>,
 	);
 
-	return delegate(document, '#new_repository, #new_new_repository', 'submit', setStorage);
+	delegate(document, '#new_repository, #new_new_repository', 'submit', setStorage, {signal});
 }
 
 void features.add(import.meta.url, {

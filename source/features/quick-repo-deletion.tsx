@@ -1,22 +1,22 @@
 import './quick-repo-deletion.css';
 import delay from 'delay';
 import React from 'dom-chef';
-import cache from 'webext-storage-cache';
 import select from 'select-dom';
-import delegate from 'delegate-it';
+import {TrashIcon} from '@primer/octicons-react';
 import elementReady from 'element-ready';
+import {assertError} from 'ts-extras';
 import * as pageDetect from 'github-url-detection';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import features from '.';
 import * as api from '../github-helpers/api';
-import {getRepo} from '../github-helpers';
+import {getForkedRepo, getRepo} from '../github-helpers';
 import pluralize from '../helpers/pluralize';
 import addNotice from '../github-widgets/notice-bar';
-import {getCacheKey} from './forked-to';
 import looseParseInt from '../helpers/loose-parse-int';
 import parseBackticks from '../github-helpers/parse-backticks';
 
-function handleToggle(event: delegate.Event<Event, HTMLDetailsElement>): void {
+function handleToggle(event: DelegateEvent<Event, HTMLDetailsElement>): void {
 	const hasContent = select.exists([
 		'[data-hotkey="g i"] .Counter:not([hidden])', // Open issues
 		'[data-hotkey="g p"] .Counter:not([hidden])', // Open PRs
@@ -41,11 +41,12 @@ function handleToggle(event: delegate.Event<Event, HTMLDetailsElement>): void {
 async function verifyScopesWhileWaiting(abortController: AbortController): Promise<void> {
 	try {
 		await api.expectTokenScope('delete_repo');
-	} catch (error: unknown) {
+	} catch (error) {
+		assertError(error);
 		abortController.abort();
 		addNotice([
 			'Could not delete the repository. ',
-			parseBackticks((error as Error).message),
+			parseBackticks(error.message),
 		], {
 			type: 'error',
 			action: (
@@ -90,47 +91,48 @@ async function start(buttonContainer: HTMLDetailsElement): Promise<void> {
 	}
 
 	select('.btn', buttonContainer)!.textContent = 'Deleting repo…';
+	const {nameWithOwner, owner} = getRepo()!;
 	try {
-		const {nameWithOwner, owner} = getRepo()!;
 		await api.v3('/repos/' + nameWithOwner, {
 			method: 'DELETE',
 			json: false,
 		});
-		const restoreURL = pageDetect.isOrganizationRepo()
-			? `/organizations/${owner}/settings/deleted_repositories`
-			: '/settings/deleted_repositories';
-		const otherForksURL = `/${owner}?tab=repositories&type=fork`;
-		addNotice(
-			<span>Repository {nameWithOwner} deleted. You might be able to <a href={restoreURL}>restore it</a> or see <a href={otherForksURL}>your other forks.</a></span>,
-			{action: false},
-		);
-		select('.application-main')!.remove();
-		await cache.delete(getCacheKey());
-		if (document.hidden) {
-			// Try closing the tab if in the background. Could fail, so we still update the UI above
-			void browser.runtime.sendMessage({closeTab: true});
-		}
-	} catch (error: unknown) {
+	} catch (error) {
+		assertError(error);
 		buttonContainer.closest('li')!.remove(); // Remove button
 		addNotice([
 			'Could not delete the repository. ',
-			(error as any).response?.message ?? (error as any).message,
+			(error as api.RefinedGitHubAPIError).response?.message ?? error.message,
 		], {
 			type: 'error',
 		});
 
 		throw error;
 	}
+
+	const forkSource = '/' + getForkedRepo()!;
+	const restoreURL = pageDetect.isOrganizationRepo()
+		? `/organizations/${owner}/settings/deleted_repositories`
+		: '/settings/deleted_repositories';
+	const otherForksURL = `/${owner}?tab=repositories&type=fork`;
+	addNotice(
+		<><TrashIcon/> <span>Repository <strong>{nameWithOwner}</strong> deleted. <a href={restoreURL}>Restore it</a>, <a href={forkSource}>visit the source repo</a>, or see <a href={otherForksURL}>your other forks.</a></span></>,
+		{action: false},
+	);
+	select('.application-main')!.remove();
+	if (document.hidden) {
+		// Try closing the tab if in the background. Could fail, so we still update the UI above
+		void browser.runtime.sendMessage({closeTab: true});
+	}
 }
 
-async function init(): Promise<Deinit | false> {
+async function init(signal: AbortSignal): Promise<void | false> {
 	if (
 		// Only if the user can delete the repository
 		!await elementReady('nav [data-content="Settings"]')
 
 		// Only if the repository hasn't been starred
-		// TODO [2022-06-01]: Remove `.social-count` (GHE)
-		|| looseParseInt(select('.starring-container :is(.Counter, .social-count)')) > 0
+		|| looseParseInt(select('.starring-container .Counter')) > 0
 	) {
 		return false;
 	}
@@ -149,7 +151,7 @@ async function init(): Promise<Deinit | false> {
 		</li>,
 	);
 
-	return delegate(document, '.rgh-quick-repo-deletion[open]', 'toggle', handleToggle, true);
+	delegate(document, '.rgh-quick-repo-deletion[open]', 'toggle', handleToggle, {capture: true, signal});
 }
 
 void features.add(import.meta.url, {

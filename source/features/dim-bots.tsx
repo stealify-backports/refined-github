@@ -41,14 +41,17 @@ function init(): void {
 
 	// Delay collapsing, but only after they're collapsed on load #5158
 	requestAnimationFrame(() => {
-		select('#repo-content-pjax-container .js-navigation-container')!.classList.add('rgh-dim-bots--after-hover');
+		select(':is(#repo-content-pjax-container, turbo-frame) .js-navigation-container')!.classList.add('rgh-dim-bots--after-hover');
 	});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isCommitList,
-		pageDetect.isConversationList,
+		pageDetect.isIssueOrPRList,
+	],
+	exclude: [
+		pageDetect.isBlank, // Prevent error on empty lists #5544
 	],
 	deduplicate: 'has-rgh-inner',
 	init,

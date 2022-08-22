@@ -8,6 +8,10 @@
 		"__filebasename"
 	],
 	"rules": {
+		"jsx-quotes": [
+			"error",
+			"prefer-double"
+		],
 		"no-alert": "off",
 		"no-warning-comments": "off",
 		"unicorn/prefer-dom-node-dataset": "off",
@@ -15,6 +19,7 @@
 			"allowWarningComments": false
 		}],
 		"@typescript-eslint/naming-convention": "off",
+		"@typescript-eslint/no-implicit-any-catch": "off",
 		"@typescript-eslint/no-unsafe-assignment": "off",
 		"@typescript-eslint/no-unsafe-member-access": "off",
 		"@typescript-eslint/no-unsafe-return": "off",
@@ -26,7 +31,8 @@
 				"allowExpressions": true
 			}
 		],
-		"node/prefer-global/process": "off",
+		"n/prefer-global/process": "off",
+		"n/file-extension-in-import": "off",
 		"import/no-cycle": "off",
 		"import/no-unassigned-import": "off",
 		"import/extensions": "off",
@@ -69,6 +75,14 @@
 			"rules": {
 				"@typescript-eslint/consistent-type-definitions": "off",
 				"@typescript-eslint/explicit-function-return-type": "off"
+			}
+		},
+		{
+			"files": [
+				"source/features/*"
+			],
+			"rules": {
+				"import/prefer-default-export": "off"
 			}
 		}
 	],

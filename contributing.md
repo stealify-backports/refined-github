@@ -27,30 +27,30 @@ function init(): void {
 
 void features.add(import.meta.url, {
 	include: [
-		pageDetect.isPR // Find which one you need on https://fregante.github.io/github-url-detection/
+		pageDetect.isPR, // Find which one you need on https://fregante.github.io/github-url-detection/
 	],
 	awaitDomReady: false,
-	init
+	init,
 });
 ```
 
 Here's an example using all of the possible `feature.add` options:
 
-```ts
+```tsx
 import React from 'dom-chef';
 import select from 'select-dom';
-import delegate from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import features from '.';
 
-function append(event: delegate.Event<MouseEvent, HTMLButtonElement>): void {
+function append(event: DelegateEvent<MouseEvent, HTMLButtonElement>): void {
 	event.delegateTarget.after('✨', <div className="rgh-jsx-element">Button clicked!</div>);
 }
 
-function init(): Deinit {
+function init(signal: AbortSignal): void {
 	// Events must be set via delegate, unless shortlived
-	return delegate(document, '.btn', 'click', append);
+	delegate(document, '.btn', 'click', append, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -76,12 +76,12 @@ void features.add(import.meta.url, {
 	exclude: [
 		pageDetect.isRepoRoot,
 	],
-	init
+	init,
 }, {
 	include: [
 		pageDetect.isGist
 	],
-	init: () => console.log('Additional listener for gist pages!')
+	init: () => console.log('Additional listener for gist pages!'),
 });
 ```
 

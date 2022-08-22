@@ -12,7 +12,7 @@ import SearchQuery from '../github-helpers/search-query';
 import abbreviateNumber from '../helpers/abbreviate-number';
 import {highlightTab, unhighlightTab} from '../helpers/dom-utils';
 
-const supportedLabels = /^(bug|confirmed-bug|type:bug|kind:bug|(:[\w-]+:|\p{Emoji})bug)$/iu;
+const supportedLabels = /^(bug|confirmed-bug|type[:/]bug|kind[:/]bug|(:[\w-]+:|\p{Emoji})bug)$/iu;
 const getBugLabelCacheKey = (): string => 'bugs-label:' + getRepo()!.nameWithOwner;
 const getBugLabel = async (): Promise<string | undefined> => cache.get<string>(getBugLabelCacheKey());
 const isBugLabel = (label: string): boolean => supportedLabels.test(label.replace(/\s/g, ''));
@@ -132,7 +132,7 @@ async function addBugsTab(): Promise<void | false> {
 		const bugCount = await countPromise;
 		bugsCounter.textContent = abbreviateNumber(bugCount);
 		bugsCounter.title = bugCount > 999 ? String(bugCount) : '';
-	} catch (error: unknown) {
+	} catch (error) {
 		bugsCounter.remove();
 		throw error; // Likely an API call error that will be handled by the init
 	}
@@ -156,7 +156,7 @@ async function updateBugsTagHighlighting(): Promise<void | false> {
 
 	const bugLabel = await getBugLabel() ?? 'bug';
 	if (
-		(pageDetect.isRepoTaxonomyConversationList() && location.href.endsWith('/labels/' + encodeURIComponent(bugLabel)))
+		(pageDetect.isRepoTaxonomyIssueOrPRList() && location.href.endsWith('/labels/' + encodeURIComponent(bugLabel)))
 		|| (pageDetect.isRepoIssueList() && await isBugsListing())
 	) {
 		void removePinnedIssues();

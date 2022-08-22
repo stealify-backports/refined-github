@@ -2,15 +2,17 @@ import './wait-for-checks.css';
 import React from 'dom-chef';
 import select from 'select-dom';
 import onetime from 'onetime';
-import delegate from 'delegate-it';
 import {InfoIcon} from '@primer/octicons-react';
 import * as pageDetect from 'github-url-detection';
 import pRetry, {AbortError} from 'p-retry';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import features from '.';
 import observeElement from '../helpers/simplified-element-observer';
 import * as prCiStatus from '../github-helpers/pr-ci-status';
 import onPrMergePanelOpen from '../github-events/on-pr-merge-panel-open';
+import {onPrMergePanelLoad} from '../github-events/on-fragment-load';
+import onAbort from '../helpers/abort-controller';
 
 // Reuse the same checkbox to preserve its status
 const generateCheckbox = onetime(() => (
@@ -67,7 +69,7 @@ function disableForm(disabled = true): void {
 	}
 }
 
-async function handleMergeConfirmation(event: delegate.Event<Event, HTMLButtonElement>): Promise<void> {
+async function handleMergeConfirmation(event: DelegateEvent<Event, HTMLButtonElement>): Promise<void> {
 	if (!getCheckbox()?.checked) {
 		return;
 	}
@@ -114,7 +116,13 @@ async function handleMergeConfirmation(event: delegate.Event<Event, HTMLButtonEl
 	}
 }
 
-function watchForNewCommits(): MutationObserver {
+let commitObserver: undefined | MutationObserver;
+
+function watchForNewCommits(): void {
+	if (commitObserver) {
+		return;
+	}
+
 	let previousCommit = prCiStatus.getLastCommitReference();
 	const filteredListener = (): void => {
 		const newCommit = prCiStatus.getLastCommitReference();
@@ -128,10 +136,20 @@ function watchForNewCommits(): MutationObserver {
 		showCheckboxIfNecessary();
 	};
 
-	return observeElement('.js-discussion', filteredListener, {
+	commitObserver = observeElement('.js-discussion', filteredListener, {
 		childList: true,
 		subtree: true,
 	})!;
+}
+
+function onPrMergePanelHandler(): void {
+	// Disable the feature if the PR requires administrator privileges https://github.com/refined-github/refined-github/issues/1771#issuecomment-1092415019
+	if (select.exists('input.js-admin-merge-override[type="checkbox"]')) {
+		return;
+	}
+
+	showCheckboxIfNecessary();
+	watchForNewCommits();
 }
 
 function onBeforeunload(event: BeforeUnloadEvent): void {
@@ -140,38 +158,24 @@ function onBeforeunload(event: BeforeUnloadEvent): void {
 	}
 }
 
-async function init(): Promise<Deinit[]> {
-	const deinitController = new AbortController();
-
+function init(signal: AbortSignal): void {
 	// Warn user if it's not yet submitted
-	window.addEventListener('beforeunload', onBeforeunload);
+	window.addEventListener('beforeunload', onBeforeunload, {signal});
 
-	return [
-		deinitController.abort,
+	onPrMergePanelLoad(onPrMergePanelHandler, signal);
+	onPrMergePanelOpen(onPrMergePanelHandler, signal);
 
-		onPrMergePanelOpen(() => {
-			const {signal} = deinitController;
-			if (signal.aborted) {
-				return;
-			}
+	// One of the merge buttons has been clicked
+	delegate(document, '.js-merge-commit-button:not(.rgh-merging)', 'click', handleMergeConfirmation, {signal});
 
-			showCheckboxIfNecessary();
-			const observer = watchForNewCommits();
-			signal.addEventListener('abort', observer.disconnect, {once: true});
-		}),
+	// Cancel wait when the user presses the Cancel button
+	delegate(document, '.commit-form-actions button:not(.js-merge-commit-button)', 'click', () => {
+		disableForm(false);
+	}, {signal});
 
-		// One of the merge buttons has been clicked
-		delegate(document, '.js-merge-commit-button:not(.rgh-merging)', 'click', handleMergeConfirmation),
-
-		// Cancel wait when the user presses the Cancel button
-		delegate(document, '.commit-form-actions button:not(.js-merge-commit-button)', 'click', () => {
-			disableForm(false);
-		}),
-
-		() => {
-			window.removeEventListener('beforeunload', onBeforeunload);
-		},
-	];
+	if (commitObserver) {
+		onAbort(signal, commitObserver);
+	}
 }
 
 void features.add(import.meta.url, {
@@ -188,6 +192,6 @@ void features.add(import.meta.url, {
 	exclude: [
 		pageDetect.isDraftPR,
 	],
-	deduplicate: 'has-rgh-inner',
+	deduplicate: false,
 	init,
 });

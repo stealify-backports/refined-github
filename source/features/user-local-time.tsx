@@ -8,10 +8,11 @@ import select from 'select-dom';
 import onetime from 'onetime';
 import {observe} from 'selector-observer';
 import {ClockIcon} from '@primer/octicons-react';
+import * as pageDetect from 'github-url-detection';
 
 import features from '.';
 import * as api from '../github-helpers/api';
-import {getUsername} from '../github-helpers';
+import {getUsername, getCleanPathname} from '../github-helpers';
 
 interface Commit {
 	url: string;
@@ -78,50 +79,15 @@ function parseOffset(date: string): number {
 	return (hours * 60) + (hours < 0 ? -minutes : minutes);
 }
 
-async function insertUserLocalTime(hovercardContainer: Element): Promise<void> {
-	const hovercard = hovercardContainer.closest('div.Popover-message')!;
-	if (!select.exists('[data-hydro-view*="user-hovercard-hover"]', hovercard)) {
-		// It's not the hovercard type we expect
-		return;
-	}
-
-	const login = select('a[data-octo-dimensions="link_type:profile"]', hovercard)?.pathname.slice(1);
-	if (!login || login === getUsername()) {
-		return;
-	}
-
-	hovercardContainer.classList.add('rgh-user-local-time');
-
-	const datePromise = getLastCommitDate(login);
-	const race = await Promise.race([delay(300), datePromise]);
-	if (race === false) {
-		// The timezone was undeterminable and this resolved "immediately" (or was cached), so don't add the icon at all
-		return;
-	}
-
-	const placeholder = <span>Guessing local time…</span>;
-	const container = (
-		<div className="mt-2 color-text-secondary color-fg-muted text-small">
-			<ClockIcon/> {placeholder}
-		</div>
-	);
-
-	// Adding the time element might change the height of the hovercard and thus break its positioning
-	const hovercardHeight = hovercard.offsetHeight;
-
-	// Only remove the space reserved via CSS when the element is actually inserted in the hovercard #4527
-	hovercardContainer.classList.add('rgh-user-local-time-added');
-	hovercardContainer.append(container);
-
-	if (hovercard.matches('.Popover-message--bottom-right, .Popover-message--bottom-left')) {
-		const diff = hovercard.offsetHeight - hovercardHeight;
-		if (diff > 0) {
-			const parent = hovercard.parentElement!;
-			const top = Number.parseInt(parent.style.top, 10);
-			parent.style.top = `${top - diff}px`;
-		}
-	}
-
+async function display({
+	datePromise,
+	placeholder,
+	container,
+}: {
+	datePromise: Promise<string | false>;
+	placeholder: JSX.Element;
+	container: JSX.Element;
+}): Promise<void> {
 	const date = await datePromise;
 	if (!date) {
 		placeholder.textContent = 'Timezone unknown';
@@ -142,12 +108,96 @@ async function insertUserLocalTime(hovercardContainer: Element): Promise<void> {
 	container.title = `Timezone guessed from their last commit: ${date}`;
 }
 
+async function insertUserLocalTime(hovercardContainer: Element): Promise<void> {
+	const hovercard = hovercardContainer.closest('div.Popover-message')!;
+	if (!select.exists('[data-hydro-view*="user-hovercard-hover"]', hovercard)) {
+		// It's not the hovercard type we expect
+		return;
+	}
+
+	const login = select('a.Link--primary', hovercard)?.pathname.slice(1);
+	if (!login || login === getUsername()) {
+		return;
+	}
+
+	hovercardContainer.classList.add('rgh-user-local-time');
+
+	const datePromise = getLastCommitDate(login);
+	const race = await Promise.race([delay(300), datePromise]);
+	if (race === false) {
+		// The timezone was undeterminable and this resolved "immediately" (or was cached), so don't add the icon at all
+		return;
+	}
+
+	const placeholder = <span className="ml-1">Guessing local time…</span>;
+	const container = (
+		<div className="mt-2 color-text-secondary color-fg-muted text-small d-flex">
+			<ClockIcon/> {placeholder}
+		</div>
+	);
+
+	// Adding the time element might change the height of the hovercard and thus break its positioning
+	const hovercardHeight = hovercard.offsetHeight;
+
+	// Only remove the space reserved via CSS when the element is actually inserted in the hovercard #4527
+	hovercardContainer.classList.add('rgh-user-local-time-added');
+	hovercardContainer.append(container);
+
+	if (hovercard.matches('.Popover-message--bottom-right, .Popover-message--bottom-left')) {
+		const diff = hovercard.offsetHeight - hovercardHeight;
+		if (diff > 0) {
+			const parent = hovercard.parentElement!;
+			const top = Number.parseInt(parent.style.top, 10);
+			parent.style.top = `${top - diff}px`;
+		}
+	}
+
+	void display({datePromise, placeholder, container});
+}
+
+const selector = [
+	'.js-hovercard-content .Popover-message div.d-flex.mt-3.overflow-hidden > div.d-flex:not(.rgh-user-local-time)',
+	'.js-hovercard-content .Popover-message div.d-flex.mt-3 > div.overflow-hidden.ml-3:not(.rgh-user-local-time)', // GHE 2022/06/24
+].join(',');
 function init(): void {
-	observe('.js-hovercard-content .Popover-message div.d-flex.mt-3 > div.overflow-hidden.ml-3:not(.rgh-user-local-time)', {
+	observe(selector, {
 		add: insertUserLocalTime,
 	});
 }
 
+async function profileInit(): Promise<void> {
+	const login = getCleanPathname();
+	if (login === getUsername()) {
+		return;
+	}
+
+	const datePromise = getLastCommitDate(login);
+	const race = await Promise.race([delay(300), datePromise]);
+	if (race === false) {
+		// The timezone was undeterminable and this resolved "immediately" (or was cached), so don't add the icon at all
+		return;
+	}
+
+	const placeholder = <span className="v-align-middle">Guessing local time…</span>;
+	const container = (
+		<li className="vcard-detail pt-1 css-truncate css-truncate-target">
+			<ClockIcon/> {placeholder}
+		</li>
+	);
+
+	select('.vcard-details')!.append(container);
+
+	void display({datePromise, placeholder, container});
+}
+
 void features.add(import.meta.url, {
 	init: onetime(init),
+}, {
+	include: [
+		pageDetect.isUserProfile,
+	],
+	exclude: [
+		pageDetect.isPrivateUserProfile,
+	],
+	init: profileInit,
 });

@@ -1,5 +1,4 @@
 import select from 'select-dom';
-import * as pageDetect from 'github-url-detection';
 
 import features from '.';
 
@@ -40,23 +39,11 @@ function pjaxErrorHandler(event: CustomEvent): void {
 	}
 }
 
-function init(): Deinit {
+function init(): void {
 	progressLoader = select('.progress-pjax-loader')!;
 	window.addEventListener('keydown', keydownHandler);
-
-	return () => {
-		window.removeEventListener('keydown', keydownHandler);
-	};
 }
 
 void features.add(import.meta.url, {
-	include: [
-		pageDetect.isRepo,
-		pageDetect.isRepoSearch,
-		pageDetect.isGlobalSearchResults,
-		pageDetect.isUserProfile,
-		pageDetect.isSingleGist,
-		pageDetect.isGlobalConversationList,
-	],
 	init,
 });

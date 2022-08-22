@@ -1,24 +1,13 @@
 import onetime from 'onetime';
-import {observe} from 'selector-observer';
-import {applyToLink} from 'shorten-repo-url';
 import * as pageDetect from 'github-url-detection';
 
 import features from '.';
-import {linkifiedURLClass} from '../github-helpers/dom-formatters';
-import {codeElementsSelectors} from './show-whitespace';
+import {linkifiedURLClass, shortenLink} from '../github-helpers/dom-formatters';
+import observe from '../helpers/selector-observer';
 
+/* This feature is currently so broad that it's not de-inited via signal, it's just run once for all pageloads #5889 */
 function init(): void {
-	observe(`a[href]:not(.${linkifiedURLClass})`, {
-		constructor: HTMLAnchorElement,
-		add(link) {
-			// Exclude the link if the closest element found is not `.comment-body`
-			// This avoids shortening links in code and code suggestions, but still shortens them in review comments
-			// https://github.com/refined-github/refined-github/pull/4759#discussion_r702460890
-			if (link.closest(`${codeElementsSelectors}, .comment-body`)?.classList.contains('comment-body')) {
-				applyToLink(link, location.href);
-			}
-		},
-	});
+	observe(`a[href]:not(.${linkifiedURLClass})`, shortenLink);
 }
 
 void features.add(import.meta.url, {
@@ -28,3 +17,11 @@ void features.add(import.meta.url, {
 	],
 	init: onetime(init),
 });
+
+/*
+
+## Test URLs
+
+https://github.com/refined-github/sandbox/pull/14
+
+*/

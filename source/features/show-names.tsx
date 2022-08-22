@@ -10,9 +10,11 @@ import {getUsername, compareNames} from '../github-helpers';
 
 async function init(): Promise<false | void> {
 	const usernameElements = select.all([
-		// `a` selector needed to skip commits by non-GitHub users.
+		// `a` selector needed to skip commits by non-GitHub users
 		':is(.js-discussion, .inline-comments) a.author:not(.rgh-fullname, [href*="/apps/"], [href*="/marketplace/"], [data-hovercard-type="organization"])',
-		'#dashboard a.text-bold[data-hovercard-type="user"]:not(.rgh-fullname)', // On dashboard `.text-bold` is required to not fetch avatars.
+
+		// On dashboard `.text-bold` is required to not fetch avatars
+		'#dashboard a.text-bold[data-hovercard-type="user"]:not(.rgh-fullname)',
 	]);
 
 	const usernames = new Set<string>();
@@ -45,28 +47,27 @@ async function init(): Promise<false | void> {
 		const username = usernameElement.textContent!;
 		const userKey = api.escapeKey(username);
 
-		// For the currently logged in user, `names[userKey]` would not be present.
+		// For the currently logged in user, `names[userKey]` would not be present
 		const {name} = names[userKey] ?? {};
-
-		if (name) {
-			// If it's a regular comment author, add it outside <strong>
-			// otherwise it's something like "User added some commits"
-			if (compareNames(username, name)) {
-				usernameElement.textContent = name;
-			} else {
-				const {parentElement} = usernameElement;
-				const insertionPoint = parentElement!.tagName === 'STRONG'
-					? parentElement!
-					: usernameElement;
-				insertionPoint.after(
-					' ',
-					<span className="color-text-secondary color-fg-muted css-truncate d-inline-block">
-						(<bdo className="css-truncate-target" style={{maxWidth: '200px'}}>{name}</bdo>)
-					</span>,
-					' ',
-				);
-			}
+		if (!name) {
+			continue;
 		}
+
+		// If it's a regular comment author, add it outside <strong> otherwise it's something like "User added some commits"
+		if (compareNames(username, name)) {
+			usernameElement.textContent = name;
+			continue;
+		}
+
+		const {parentElement} = usernameElement;
+		const insertionPoint = parentElement!.tagName === 'STRONG' ? parentElement! : usernameElement;
+		insertionPoint.after(
+			' ',
+			<span className="color-text-secondary color-fg-muted css-truncate d-inline-block">
+				(<bdo className="css-truncate-target" style={{maxWidth: '200px'}}>{name}</bdo>)
+			</span>,
+			' ',
+		);
 	}
 }
 
@@ -83,6 +84,7 @@ void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasComments,
 	],
-	deduplicate: 'has-rgh-inner',
+	onlyAdditionalListeners: true,
+	deduplicate: false,
 	init,
 });

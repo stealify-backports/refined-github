@@ -7,9 +7,12 @@ import * as pageDetect from 'github-url-detection';
 
 import features from '.';
 import {getUsername} from '../github-helpers';
+import getUserAvatar from '../github-helpers/get-user-avatar';
+import onAbort from '../helpers/abort-controller';
 
 const arbitraryAvatarLimit = 36;
 const approximateHeaderLength = 3; // Each button header takes about as much as 3 avatars
+const avatarSize = 16;
 
 interface Participant {
 	button: HTMLButtonElement;
@@ -18,11 +21,9 @@ interface Participant {
 }
 
 function getParticipants(button: HTMLButtonElement): Participant[] {
-	// Reaction buttons on releases and review comments have the list of people in subsequent `<primer-tooltip>` element instead of `aria-label` #5287
-	const tooltip = button.classList.contains('tooltipped')
-		? button.getAttribute('aria-label')!
-		: button.nextElementSibling!.textContent!;
-	const users = tooltip
+	// The list of people who commented is in an adjacent `<tool-tip>` element #5698
+	const users = button.nextElementSibling!
+		.textContent!
 		.replace(/ reacted with.*/, '')
 		.replace(/,? and /, ', ')
 		.replace(/, \d+ more/, '')
@@ -35,18 +36,8 @@ function getParticipants(button: HTMLButtonElement): Participant[] {
 			continue;
 		}
 
-		const cleanName = username.replace('[bot]', '');
-
-		// Find image on page. Saves a request and a redirect + add support for bots
-		const existingAvatar = select(`img[alt="@${cleanName}"]`);
-		if (existingAvatar) {
-			participants.push({button, username, imageUrl: existingAvatar.src});
-			continue;
-		}
-
-		// If it's not a bot, use a shortcut URL #2125
-		if (cleanName === username) {
-			const imageUrl = (pageDetect.isEnterprise() ? `/${username}.png` : `https://avatars.githubusercontent.com/${username}`) + '?size=32';
+		const imageUrl = getUserAvatar(username, avatarSize);
+		if (imageUrl) {
 			participants.push({button, username, imageUrl});
 		}
 	}
@@ -84,7 +75,7 @@ function showAvatarsOn(commentReactions: Element): void {
 	for (const {button, username, imageUrl} of flatParticipants) {
 		button.append(
 			<span className="avatar-user avatar rgh-reactions-avatar p-0 flex-self-center">
-				<img src={imageUrl} className="d-block" width="16" height="16" alt={`@${username}`}/>
+				<img src={imageUrl} className="d-block" width={avatarSize} height={avatarSize} alt={`@${username}`}/>
 			</span>,
 		);
 	}
@@ -92,10 +83,11 @@ function showAvatarsOn(commentReactions: Element): void {
 	resizeObserver.observe(commentReactions.closest('.comment-reactions')!);
 }
 
-const selector = '.has-reactions .comment-reactions-options:not(.rgh-reactions)';
+// TODO [2022-12-18]: Drop `.comment-reactions-options` (GHE)
+const reactionsSelector = '.has-reactions :is(.js-comment-reactions-options, .comment-reactions-options):not(.rgh-reactions)';
 
 function observeReactions(): void {
-	for (const commentReactions of select.all(selector)) {
+	for (const commentReactions of select.all(reactionsSelector)) {
 		observeCommentReactions(commentReactions);
 	}
 }
@@ -105,18 +97,14 @@ function observeCommentReactions(commentReactions: Element): void {
 	viewportObserver.observe(commentReactions);
 }
 
-function init(): Deinit[] {
+function init(signal: AbortSignal): void {
 	observeReactions();
-
-	return [
-		viewportObserver,
-		resizeObserver,
-	];
+	onAbort(signal, viewportObserver, resizeObserver);
 }
 
-function discussionInit(): Deinit[] {
+function discussionInit(): Deinit {
 	return [
-		observe(selector, {add: observeCommentReactions}),
+		observe(reactionsSelector, {add: observeCommentReactions}),
 		viewportObserver,
 		resizeObserver,
 	];

@@ -1,43 +1,48 @@
 import select from 'select-dom';
-import delegate from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import features from '.';
 import clickAll from '../helpers/click-all';
 import showToast from '../github-helpers/toast';
+import getItemsBetween from '../helpers/get-items-between';
+import onAbort from '../helpers/abort-controller';
 
 let previousFile: HTMLElement | undefined;
+let runningBatch = false;
 
-function remember(event: delegate.Event): void {
-	previousFile = event.delegateTarget.closest('.js-file')!;
+function remember(event: DelegateEvent): void {
+	// Only remember if the user clicked it. `isTrusted` doesn't work because `remember` is called on a fake `submit` event
+	if (!runningBatch) {
+		previousFile = event.delegateTarget.closest('.js-file')!;
+	}
 }
 
 function isChecked(file: HTMLElement): boolean {
-	// Use the attribute because the `checked` property seems unreliable in the `click` handler
-	return file.querySelector('.js-reviewed-checkbox')!.hasAttribute('checked');
+	return file.querySelector('input.js-reviewed-checkbox')!.checked;
 }
 
-function batchToggle(event: delegate.Event<MouseEvent, HTMLFormElement>): void {
-	if (!event.shiftKey || !previousFile) {
+function batchToggle(event: DelegateEvent<MouseEvent, HTMLFormElement>): void {
+	if (!event.shiftKey) {
 		return;
 	}
 
 	event.preventDefault();
 	event.stopImmediatePropagation();
 
-	const previousFileState = isChecked(previousFile);
-	const thisFile = event.delegateTarget.closest('.js-file')!;
 	const files = select.all('.js-file');
-	const selectedFiles = files.slice(...[
-		files.indexOf(previousFile) + 1,
-		files.indexOf(thisFile) + 1,
-	].sort((a, b) => a - b));
+	const thisFile = event.delegateTarget.closest('.js-file')!;
+	const isThisBeingFileChecked = !isChecked(thisFile); // Flip it because the value hasn't changed yet
 
+	runningBatch = true;
+	const selectedFiles = getItemsBetween(files, previousFile, thisFile);
 	for (const file of selectedFiles) {
-		if (isChecked(file) !== previousFileState) {
+		if (file !== thisFile && isChecked(file) !== isThisBeingFileChecked) {
 			select('.js-reviewed-checkbox', file)!.click();
 		}
 	}
+
+	runningBatch = false;
 }
 
 function markAsViewedSelector(target: HTMLElement): string {
@@ -47,7 +52,7 @@ function markAsViewedSelector(target: HTMLElement): string {
 
 const markAsViewed = clickAll(markAsViewedSelector);
 
-function onAltClick(event: delegate.Event<MouseEvent, HTMLInputElement>): void {
+function onAltClick(event: DelegateEvent<MouseEvent, HTMLInputElement>): void {
 	if (!event.altKey || !event.isTrusted) {
 		return;
 	}
@@ -62,16 +67,14 @@ function onAltClick(event: delegate.Event<MouseEvent, HTMLInputElement>): void {
 	});
 }
 
-function init(): Deinit[] {
-	return [
-		// `mousedown` required to avoid mouse selection on shift-click
-		delegate(document, '.js-reviewed-toggle', 'mousedown', batchToggle),
-		delegate(document, '.js-toggle-user-reviewed-file-form', 'submit', remember),
-		delegate(document, '.js-reviewed-toggle', 'click', onAltClick),
-		() => {
-			previousFile = undefined;
-		},
-	];
+function init(signal: AbortSignal): void {
+	delegate(document, '.js-reviewed-toggle', 'click', onAltClick, {signal});
+	// `mousedown` required to avoid mouse selection on shift-click
+	delegate(document, '.js-reviewed-toggle', 'mousedown', batchToggle, {signal});
+	delegate(document, '.js-toggle-user-reviewed-file-form', 'submit', remember, {signal});
+	onAbort(signal, () => {
+		previousFile = undefined;
+	});
 }
 
 void features.add(import.meta.url, {
@@ -79,6 +82,6 @@ void features.add(import.meta.url, {
 	include: [
 		pageDetect.isPRFiles,
 	],
-	deduplicate: 'has-rgh-inner',
+	deduplicate: false,
 	init,
 });

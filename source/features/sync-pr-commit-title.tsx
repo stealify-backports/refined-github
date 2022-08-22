@@ -6,9 +6,9 @@ import * as pageDetect from 'github-url-detection';
 import * as textFieldEdit from 'text-field-edit';
 
 import features from '.';
-import getDeinitHandler from '../helpers/get-deinit-handler';
 import onPrMergePanelOpen from '../github-events/on-pr-merge-panel-open';
 import {getConversationNumber} from '../github-helpers';
+import onPrCommitMessageRestore from '../github-events/on-pr-commit-message-restore';
 
 const mergeFormSelector = '.is-squashing form:not([hidden])';
 const prTitleFieldSelector = '.js-issue-update input[name="issue[title]"]';
@@ -68,11 +68,9 @@ function updatePRTitle(): void {
 	select(prTitleSubmitSelector)!.click(); // `form.submit()` isn't sent via ajax
 }
 
-async function updateCommitTitle(event: Event): Promise<void> {
-	const field = getCommitTitleField();
-
-	// Only if the user hasn't already interacted with it in this session
-	if (field && event.type !== 'session:resume') {
+async function updateCommitTitle(): Promise<void> {
+	const field = getCommitTitleField()!;
+	if (field) {
 		textFieldEdit.set(field, createCommitTitle());
 	}
 
@@ -80,35 +78,22 @@ async function updateCommitTitle(event: Event): Promise<void> {
 }
 
 function disableSubmission(): void {
-	deinit();
+	features.unload(import.meta.url);
 	getUI().remove();
 }
 
-const listeners: Deinit[] = [];
-
-function init(): Deinit {
-	listeners.push(
-		...onPrMergePanelOpen(updateCommitTitle),
-		delegate(document, '#merge_title_field', 'input', updateUI),
-		delegate(document, 'form.js-merge-pull-request', 'submit', updatePRTitle),
-		delegate(document, '.rgh-sync-pr-commit-title', 'click', disableSubmission),
-	);
-
-	return deinit;
-}
-
-function deinit(): void {
-	for (const listener of listeners) {
-		getDeinitHandler(listener)();
-	}
-
-	listeners.length = 0;
+function init(signal: AbortSignal): void {
+	onPrCommitMessageRestore(updateUI, signal);
+	onPrMergePanelOpen(updateCommitTitle, signal);
+	delegate(document, '#merge_title_field', 'input', updateUI, {signal});
+	delegate(document, 'form.js-merge-pull-request', 'submit', updatePRTitle, {signal});
+	delegate(document, '.rgh-sync-pr-commit-title', 'click', disableSubmission, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.isPRConversation,
 	],
-	deduplicate: 'has-rgh-inner',
+	deduplicate: false,
 	init,
 });

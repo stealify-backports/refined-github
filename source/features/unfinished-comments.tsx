@@ -36,21 +36,15 @@ function updateDocumentTitle(): void {
 	}
 }
 
-function init(): Deinit[] {
-	document.addEventListener('visibilitychange', updateDocumentTitle);
-
-	return [
-		() => {
-			document.removeEventListener('visibilitychange', updateDocumentTitle);
-		},
-		delegate(document, 'form', 'submit', disableOnSubmit, {capture: true}),
-	];
+function init(signal: AbortSignal): void {
+	delegate(document, 'form', 'submit', disableOnSubmit, {capture: true, signal});
+	document.addEventListener('visibilitychange', updateDocumentTitle, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasRichTextEditor,
 	],
-	deduplicate: 'has-rgh-inner',
+	deduplicate: false,
 	init,
 });

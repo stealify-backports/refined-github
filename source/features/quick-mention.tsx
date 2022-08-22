@@ -1,23 +1,22 @@
 import './quick-mention.css';
 import React from 'dom-chef';
 import select from 'select-dom';
-import delegate from 'delegate-it';
 import {ReplyIcon} from '@primer/octicons-react';
 import * as pageDetect from 'github-url-detection';
 import * as textFieldEdit from 'text-field-edit';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import {wrap} from '../helpers/dom-utils';
 import features from '.';
 import {getUsername} from '../github-helpers';
 import onNewComments from '../github-events/on-new-comments';
-import isArchivedRepo from '../helpers/is-archived-repo';
 
 function prefixUserMention(userMention: string): string {
 	// The alt may or may not have it #4859
 	return '@' + userMention.replace('@', '');
 }
 
-function mentionUser({delegateTarget: button}: delegate.Event): void {
+function mentionUser({delegateTarget: button}: DelegateEvent): void {
 	const userMention = button.parentElement!.querySelector('img')!.alt;
 	const newComment = select('textarea#new_comment_field')!;
 	newComment.focus();
@@ -33,7 +32,9 @@ function mentionUser({delegateTarget: button}: delegate.Event): void {
 	textFieldEdit.insert(newComment, `${spacer}${prefixUserMention(userMention)} `);
 }
 
-function init(): Deinit {
+function init(signal: AbortSignal): void {
+	delegate(document, 'button.rgh-quick-mention', 'click', mentionUser, {signal});
+
 	// `:first-child` avoids app badges #2630
 	// The hovercard attribute avoids `highest-rated-comment`
 	// Avatars next to review events aren't wrapped in a <div> #4844
@@ -66,8 +67,6 @@ function init(): Deinit {
 			</button>,
 		);
 	}
-
-	return delegate(document, 'button.rgh-quick-mention', 'click', mentionUser);
 }
 
 void features.add(import.meta.url, {
@@ -76,7 +75,7 @@ void features.add(import.meta.url, {
 	],
 	exclude: [
 		() => select.exists('.conversation-limited'), // Conversation is locked
-		isArchivedRepo,
+		pageDetect.isArchivedRepo,
 	],
 	additionalListeners: [
 		onNewComments,

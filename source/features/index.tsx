@@ -6,16 +6,26 @@ import {Promisable} from 'type-fest';
 import * as pageDetect from 'github-url-detection';
 
 import waitFor from '../helpers/wait-for';
+import onAbort from '../helpers/abort-controller';
+import ArrayMap from '../helpers/map-of-arrays';
 import onNewComments from '../github-events/on-new-comments';
 import bisectFeatures from '../helpers/bisect';
-import getDeinitHandler from '../helpers/get-deinit-handler';
 import {shouldFeatureRun} from '../github-helpers';
+import polyfillTurboEvents from '../github-helpers/turbo-events-polyfill';
 import optionsStorage, {RGHOptions} from '../options-storage';
-import {getLocalHotfixesAsOptions, getStyleHotfixes, updateHotfixes, updateStyleHotfixes} from '../helpers/hotfix';
+import {
+	applyStyleHotfixes,
+	getStyleHotfix,
+	getLocalHotfixesAsOptions,
+	getLocalStrings,
+	updateHotfixes,
+	updateLocalStrings,
+	_,
+} from '../helpers/hotfix';
 
 type BooleanFunction = () => boolean;
-export type CallerFunction = (callback: VoidFunction, signal: AbortSignal) => void | Deinit;
-type FeatureInitResult = false | void | Deinit | Deinit[];
+export type CallerFunction = (callback: VoidFunction, signal: AbortSignal) => void | Promise<void> | Deinit;
+type FeatureInitResult = void | false | Deinit;
 type FeatureInit = (signal: AbortSignal) => Promisable<FeatureInitResult>;
 
 interface FeatureLoader extends Partial<InternalRunConfig> {
@@ -47,6 +57,8 @@ interface InternalRunConfig {
 }
 
 const {version} = browser.runtime.getManifest();
+
+const currentFeatureControllers = new ArrayMap<FeatureID, AbortController>();
 
 const logError = (url: string, error: unknown): void => {
 	const id = getFeatureID(url);
@@ -87,36 +99,15 @@ const log = {
 
 // eslint-disable-next-line no-async-promise-executor -- Rule assumes we don't want to leave it pending
 const globalReady: Promise<RGHOptions> = new Promise(async resolve => {
-	const [options, localHotfixes, hotfixCSS, bisectedFeatures] = await Promise.all([
+	const [options, localHotfixes, styleHotfix, bisectedFeatures] = await Promise.all([
 		optionsStorage.getAll(),
 		getLocalHotfixesAsOptions(),
-		getStyleHotfixes(),
+		getStyleHotfix(version),
 		bisectFeatures(),
+		getLocalStrings(),
 	]);
 
 	await waitFor(() => document.body);
-
-	if (hotfixCSS.length > 0 || options.customCSS.trim().length > 0) {
-		// Prepend to body because that's the only way to guarantee they come after the static file
-		document.body.prepend(
-			<style>{hotfixCSS}</style>,
-			<style>{options.customCSS}</style>,
-		);
-	}
-
-	void updateStyleHotfixes(version);
-
-	if (bisectedFeatures) {
-		Object.assign(options, bisectedFeatures);
-	} else {
-		// If features are remotely marked as "seriously breaking" by the maintainers, disable them without having to wait for proper updates to propagate #3529
-		void updateHotfixes(version);
-		Object.assign(options, localHotfixes);
-	}
-
-	// Create logging function
-	log.info = options.logging ? console.log : () => {/* No logging */};
-	log.http = options.logHTTP ? console.log : () => {/* No logging */};
 
 	if (pageDetect.is500() || pageDetect.isPasswordConfirmation()) {
 		return;
@@ -134,18 +125,40 @@ const globalReady: Promise<RGHOptions> = new Promise(async resolve => {
 		return;
 	}
 
+	document.documentElement.classList.add('refined-github');
+
+	void applyStyleHotfixes(styleHotfix);
+	if (options.customCSS.trim().length > 0) {
+		// Review #5857 and #5493 before making changes
+		document.head.append(<style>{options.customCSS}</style>);
+	}
+
+	void updateLocalStrings();
+
+	if (bisectedFeatures) {
+		Object.assign(options, bisectedFeatures);
+	} else {
+		// If features are remotely marked as "seriously breaking" by the maintainers, disable them without having to wait for proper updates to propagate #3529
+		void updateHotfixes(version);
+		Object.assign(options, localHotfixes);
+	}
+
+	// Create logging function
+	log.info = options.logging ? console.log : () => {/* No logging */};
+	log.http = options.logHTTP ? console.log : () => {/* No logging */};
+
 	if (select.exists('body.logged-out')) {
 		console.warn('Refined GitHub is only expected to work when you’re logged in to GitHub. Errors will not be shown.');
 		features.log.error = () => {/* No logging */};
 	}
 
-	document.documentElement.classList.add('refined-github');
+	polyfillTurboEvents();
 
 	resolve(options);
 });
 
-function setupDeinit(deinit: Deinit): void {
-	document.addEventListener('pjax:start', getDeinitHandler(deinit), {once: true});
+function castArray<Item>(value: Item | Item[]): Item[] {
+	return Array.isArray(value) ? value : [value];
 }
 
 const setupPageLoad = async (id: FeatureID, config: InternalRunConfig): Promise<void> => {
@@ -155,34 +168,24 @@ const setupPageLoad = async (id: FeatureID, config: InternalRunConfig): Promise<
 		return;
 	}
 
-	const deinitController = new AbortController();
-	document.addEventListener('pjax:start', () => {
-		deinitController.abort();
-	}, {
-		once: true,
-	});
+	const featureController = new AbortController();
+	currentFeatureControllers.append(id, featureController);
 
 	const runFeature = async (): Promise<void> => {
 		let result: FeatureInitResult;
 
 		try {
-			result = await init(deinitController.signal);
+			result = await init(featureController.signal);
 			// Features can return `false` when they decide not to run on the current page
-			// Also the condition avoids logging the fake feature added for `has-rgh`
 			if (result !== false && !id?.startsWith('rgh')) {
 				log.info('✅', id);
 			}
-		} catch (error: unknown) {
+		} catch (error) {
 			log.error(id, error);
 		}
 
-		if (!result) {
-			return;
-		}
-
-		const deinitFunctions = Array.isArray(result) ? result : [result];
-		for (const deinit of deinitFunctions) {
-			setupDeinit(deinit);
+		if (result) {
+			onAbort(featureController, ...castArray(result));
 		}
 	};
 
@@ -192,9 +195,9 @@ const setupPageLoad = async (id: FeatureID, config: InternalRunConfig): Promise<
 
 	await domLoaded; // Listeners likely need to work on the whole page
 	for (const listener of additionalListeners) {
-		const deinit = listener(runFeature, deinitController.signal);
-		if (deinit) {
-			setupDeinit(deinit);
+		const deinit = listener(runFeature, featureController.signal);
+		if (deinit && !(deinit instanceof Promise)) {
+			onAbort(featureController, ...castArray(deinit));
 		}
 	}
 };
@@ -272,7 +275,7 @@ const add = async (url: string, ...loaders: FeatureLoader[]): Promise<void> => {
 			void setupPageLoad(id, details);
 		}
 
-		document.addEventListener('pjax:end', () => {
+		document.addEventListener('turbo:render', () => {
 			if (!deduplicate || !select.exists(deduplicate)) {
 				void setupPageLoad(id, details);
 			}
@@ -287,10 +290,27 @@ const addCssFeature = async (url: string, include: BooleanFunction[] | undefined
 		deduplicate: false,
 		awaitDomReady: false,
 		init() {
-			document.body.classList.add('rgh-' + id);
+			document.documentElement.classList.add('rgh-' + id);
 		},
 	});
 };
+
+const unload = (featureUrl: string): void => {
+	const id = getFeatureID(featureUrl);
+	for (const controller of currentFeatureControllers.get(id) ?? []) {
+		controller.abort();
+	}
+};
+
+document.addEventListener('turbo:visit', () => {
+	for (const feature of currentFeatureControllers.values()) {
+		for (const controller of feature) {
+			controller.abort();
+		}
+	}
+
+	currentFeatureControllers.clear();
+});
 
 /*
 When navigating back and forth in history, GitHub will preserve the DOM changes;
@@ -303,13 +323,14 @@ void add('rgh-deduplicator' as FeatureID, {
 	async init() {
 		// `await` kicks it to the next tick, after the other features have checked for 'has-rgh', so they can run once.
 		await Promise.resolve();
-		select('#js-repo-pjax-container, #js-pjax-container')?.append(<has-rgh/>);
-		select('#repo-content-pjax-container')?.append(<has-rgh-inner/>); // #4567
+		select(_`#js-repo-pjax-container, #js-pjax-container`)?.append(<has-rgh/>);
+		select(_`#repo-content-pjax-container, turbo-frame`)?.append(<has-rgh-inner/>); // #4567
 	},
 });
 
 const features = {
 	add,
+	unload,
 	addCssFeature,
 	log,
 	shortcutMap,

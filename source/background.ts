@@ -1,6 +1,7 @@
 import 'webext-dynamic-content-scripts';
 import cache from 'webext-storage-cache'; // Also needed to regularly clear the cache
 import {isSafari} from 'webext-detect-page';
+import {objectKeys} from 'ts-extras';
 import addDomainPermissionToggle from 'webext-domain-permission-toggle';
 
 import optionsStorage from './options-storage';
@@ -37,17 +38,17 @@ const messageHandlers = {
 };
 
 browser.runtime.onMessage.addListener((message: typeof messageHandlers, sender) => {
-	for (const id of Object.keys(message) as Array<keyof typeof messageHandlers>) {
+	for (const id of objectKeys(message)) {
 		if (id in messageHandlers) {
 			return messageHandlers[id](message[id], sender);
 		}
 	}
 });
 
-// Give the browserAction a reason to exist other than "Enable RGH on this domain"
-browser.browserAction.onClicked.addListener(async () => {
+browser.browserAction.onClicked.addListener(async tab => {
 	const {actionUrl} = await optionsStorage.getAll();
 	void browser.tabs.create({
+		openerTabId: tab.id,
 		url: actionUrl || 'https://github.com',
 	});
 });

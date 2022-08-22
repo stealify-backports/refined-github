@@ -1,16 +1,12 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import delegate from 'delegate-it';
 import * as pageDetect from 'github-url-detection';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import {isMac} from '../github-helpers';
 import features from '.';
 
-function addQuickSubmit(): void {
-	select('input#commit-summary-input')!.classList.add('js-quick-submit');
-}
-
-function onKeyDown(event: delegate.Event<KeyboardEvent, HTMLInputElement>): void {
+function onKeyDown(event: DelegateEvent<KeyboardEvent, HTMLInputElement>): void {
 	const field = event.delegateTarget;
 	const form = field.form!;
 	if (
@@ -53,8 +49,8 @@ const inputElements = [
 	'#merge_title_field',
 ];
 
-function init(): Deinit {
-	return delegate(document, inputElements.join(','), 'keydown', onKeyDown);
+function init(signal: AbortSignal): void {
+	delegate(document, inputElements.join(','), 'keydown', onKeyDown, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -65,15 +61,9 @@ void features.add(import.meta.url, {
 		pageDetect.isEditingFile,
 		pageDetect.isPRConversation,
 	],
-	deduplicate: 'has-rgh-inner',
-	init,
-}, {
-	shortcuts: {
-		'ctrl enter': 'Publish a new/edited file',
-	},
-	include: [
-		pageDetect.isNewFile,
-		pageDetect.isEditingFile,
+	exclude: [
+		pageDetect.isBlank,
 	],
-	init: addQuickSubmit,
+	deduplicate: false,
+	init,
 });

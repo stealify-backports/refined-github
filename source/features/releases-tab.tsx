@@ -10,7 +10,7 @@ import features from '.';
 import * as api from '../github-helpers/api';
 import looseParseInt from '../helpers/loose-parse-int';
 import abbreviateNumber from '../helpers/abbreviate-number';
-import {createDropdownItem} from './more-dropdown-links';
+import createDropdownItem from '../github-helpers/create-dropdown-item';
 import {buildRepoURL, getRepo} from '../github-helpers';
 import {appendBefore, highlightTab, unhighlightTab} from '../helpers/dom-utils';
 
@@ -37,7 +37,7 @@ async function fetchFromApi(): Promise<number> {
 	return repository.refs.totalCount;
 }
 
-const getReleaseCount = cache.function(async () => pageDetect.isRepoRoot() ? parseCountFromDom() : fetchFromApi(), {
+export const getReleaseCount = cache.function(async () => pageDetect.isRepoRoot() ? parseCountFromDom() : fetchFromApi(), {
 	maxAge: {hours: 1},
 	staleWhileRevalidate: {days: 3},
 	cacheKey: getCacheKey,
@@ -65,7 +65,7 @@ async function addReleasesTab(): Promise<false | void> {
 				data-selected-links="repo_releases"
 				data-tab-item="rgh-releases-item"
 			>
-				<TagIcon className="UnderlineNav-octicon"/>
+				<TagIcon className="UnderlineNav-octicon d-none d-sm-inline"/>
 				<span data-content="Releases">Releases</span>
 				{count && <span className="Counter" title={count > 999 ? String(count) : ''}>{abbreviateNumber(count)}</span>}
 			</a>
@@ -88,7 +88,7 @@ async function addReleasesTab(): Promise<false | void> {
 	);
 }
 
-function highlightReleasesTab(): VoidFunction {
+function highlightReleasesTab(): Deinit {
 	const selectorObserver = observe('.UnderlineNav-item.selected:not(.rgh-releases-tab)', {
 		add(selectedTab) {
 			unhighlightTab(selectedTab);
@@ -97,7 +97,7 @@ function highlightReleasesTab(): VoidFunction {
 	});
 	highlightTab(select('.rgh-releases-tab')!);
 
-	return selectorObserver.abort;
+	return selectorObserver;
 }
 
 async function init(): Promise<Deinit | void> {

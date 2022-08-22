@@ -3,19 +3,19 @@ import React from 'dom-chef';
 import select from 'select-dom';
 import onetime from 'onetime';
 import {XIcon} from '@primer/octicons-react';
-import delegate from 'delegate-it';
-import {observe} from 'selector-observer';
+import {assertError} from 'ts-extras';
 import * as pageDetect from 'github-url-detection';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import features from '.';
 import * as api from '../github-helpers/api';
 import showToast from '../github-helpers/toast';
-import isArchivedRepo from '../helpers/is-archived-repo';
 import {getConversationNumber} from '../github-helpers';
+import observe from '../helpers/selector-observer';
 
 const canNotEditLabels = onetime((): boolean => !select.exists('.label-select-menu .octicon-gear'));
 
-async function removeLabelButtonClickHandler(event: delegate.Event<MouseEvent, HTMLButtonElement>): Promise<void> {
+async function removeLabelButtonClickHandler(event: DelegateEvent<MouseEvent, HTMLButtonElement>): Promise<void> {
 	event.preventDefault();
 
 	const removeLabelButton = event.delegateTarget;
@@ -26,8 +26,9 @@ async function removeLabelButtonClickHandler(event: delegate.Event<MouseEvent, H
 		await api.v3(`issues/${getConversationNumber()!}/labels/${removeLabelButton.dataset.name!}`, {
 			method: 'DELETE',
 		});
-	} catch (error: unknown) {
-		void showToast(error as Error);
+	} catch (error) {
+		assertError(error);
+		void showToast(error);
 		removeLabelButton.blur();
 		label.hidden = false;
 		return;
@@ -36,29 +37,26 @@ async function removeLabelButtonClickHandler(event: delegate.Event<MouseEvent, H
 	label.remove();
 }
 
-async function init(): Promise<Deinit[]> {
+function addRemoveLabelButton(label: HTMLElement): void {
+	label.classList.add('d-inline-flex');
+	label.append(
+		<button
+			type="button"
+			aria-label="Remove this label"
+			className="btn-link tooltipped tooltipped-nw rgh-quick-label-removal"
+			data-name={label.dataset.name}
+		>
+			<XIcon/>
+		</button>,
+	);
+}
+
+async function init(signal: AbortSignal): Promise<void> {
 	await api.expectToken();
 
-	return [
-		observe('.js-issue-labels .IssueLabel:not(.rgh-quick-label-removal-already-added)', {
-			constructor: HTMLElement,
-			add(label) {
-				label.classList.add('rgh-quick-label-removal-already-added', 'd-inline-flex');
-				label.append(
-					<button
-						type="button"
-						aria-label="Remove this label"
-						className="btn-link tooltipped tooltipped-nw rgh-quick-label-removal"
-						data-name={label.dataset.name}
-					>
-						<XIcon/>
-					</button>,
-				);
-			},
-		}),
+	delegate(document, '.rgh-quick-label-removal:not([disabled])', 'click', removeLabelButtonClickHandler, {signal});
 
-		delegate(document, '.rgh-quick-label-removal:not([disabled])', 'click', removeLabelButtonClickHandler),
-	];
+	observe('.js-issue-labels .IssueLabel', addRemoveLabelButton, {signal});
 }
 
 void features.add(import.meta.url, {
@@ -67,8 +65,8 @@ void features.add(import.meta.url, {
 	],
 	exclude: [
 		canNotEditLabels,
-		isArchivedRepo,
+		pageDetect.isArchivedRepo,
 	],
-	deduplicate: 'has-rgh-inner',
+	deduplicate: false,
 	init,
 });

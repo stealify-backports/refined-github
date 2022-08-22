@@ -1,15 +1,16 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import delegate from 'delegate-it';
 import {AlertIcon} from '@primer/octicons-react';
 import * as pageDetect from 'github-url-detection';
 import {observe, Observer} from 'selector-observer';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import features from '.';
 import * as api from '../github-helpers/api';
+import getPrInfo from '../github-helpers/get-pr-info';
 import {getConversationNumber} from '../github-helpers';
 
-const selectorForPushablePRNotice = '.merge-pr > :is(.color-text-secondary, .color-fg-muted):first-child:not(.rgh-update-pr)';
+const selectorForPushablePRNotice = '.merge-pr > :is(.color-text-secondary, .color-fg-muted):first-child';
 let observer: Observer;
 
 function getBranches(): {base: string; head: string} {
@@ -22,14 +23,11 @@ function getBranches(): {base: string; head: string} {
 async function mergeBranches(): Promise<AnyObject> {
 	return api.v3(`pulls/${getConversationNumber()!}/update-branch`, {
 		method: 'PUT',
-		headers: {
-			Accept: 'application/vnd.github.lydian-preview+json',
-		},
 		ignoreHTTPStatus: true,
 	});
 }
 
-async function handler({delegateTarget}: delegate.Event): Promise<void> {
+async function handler({delegateTarget}: DelegateEvent): Promise<void> {
 	const {base, head} = getBranches();
 	if (!confirm(`Merge the ${base} branch into ${head}?`)) {
 		return;
@@ -51,9 +49,15 @@ async function handler({delegateTarget}: delegate.Event): Promise<void> {
 
 async function addButton(position: Element): Promise<void> {
 	const {base, head} = getBranches();
-	const {status} = await api.v3(`compare/${base}...${head}`);
+	const [pr, comparison] = await Promise.all([
+		getPrInfo(),
 
-	if (status === 'diverged') {
+		// TODO: Find how to determine whether the branch needs to be updated via v4
+		// `page=10000` avoids fetching any commit information, which is heavy
+		api.v3(`compare/${base}...${head}?page=10000`),
+	]);
+
+	if (comparison.status === 'diverged' && pr.viewerCanEditFiles && pr.mergeable !== 'CONFLICTING') {
 		position.append(' ', (
 			<span className="status-meta d-inline-block rgh-update-pr-from-base-branch">
 				You can <button type="button" className="btn-link">update the base branch</button>.
@@ -62,30 +66,24 @@ async function addButton(position: Element): Promise<void> {
 	}
 }
 
-async function init(): Promise<Deinit | false> {
+async function init(signal: AbortSignal): Promise<false | Deinit> {
 	await api.expectToken();
 
-	// "Resolve conflicts" is the native button to update the PR
-	if (select.exists('.js-merge-pr a[href$="/conflicts"]')) {
-		return false;
-	}
+	delegate(document, '.rgh-update-pr-from-base-branch', 'click', handler, {signal});
 
 	// Quick check before using selector-observer on it
 	if (!select.exists(selectorForPushablePRNotice)) {
 		return false;
 	}
 
-	observer = observe(selectorForPushablePRNotice, {
+	observer = observe(`:is(${selectorForPushablePRNotice}):not(.rgh-update-pr)`, {
 		add(position) {
 			position.classList.add('rgh-update-pr');
 			void addButton(position);
 		},
 	});
 
-	return [
-		observer.abort,
-		delegate(document, '.rgh-update-pr-from-base-branch', 'click', handler),
-	];
+	return observer;
 }
 
 void features.add(import.meta.url, {
@@ -95,7 +93,20 @@ void features.add(import.meta.url, {
 	exclude: [
 		pageDetect.isClosedPR,
 		() => select('.head-ref')!.title === 'This repository has been deleted',
+
+		// Native button https://github.blog/changelog/2022-02-03-more-ways-to-keep-your-pull-request-branch-up-to-date/
+		() => select.exists('.js-update-branch-form'),
 	],
-	deduplicate: 'has-rgh-inner',
+	deduplicate: false,
 	init,
 });
+
+/*
+Test URLs
+
+PR without conflicts
+https://github.com/refined-github/sandbox/pull/11
+
+Native "Resolve conflicts" button
+https://github.com/refined-github/sandbox/pull/9
+*/

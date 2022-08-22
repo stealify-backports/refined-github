@@ -4,6 +4,7 @@ import * as pageDetect from 'github-url-detection';
 import {BookIcon, CheckIcon, DiffIcon, DiffModifiedIcon} from '@primer/octicons-react';
 
 import features from '.';
+import selectHas from '../helpers/select-has';
 import {onDiffFileLoad} from '../github-events/on-fragment-load';
 
 function makeLink(type: string, icon: Element, selected: boolean): JSX.Element {
@@ -75,11 +76,9 @@ function createWhitespaceButton(): HTMLElement {
 }
 
 function initPR(): false | void {
-	const originalToggle = pageDetect.isEnterprise()
-		? select('.js-diff-settings')!.closest('details')! // TODO [2022-05-01]: Remove GHE code
-		: select('[aria-label="Diff settings"]')!.closest('details')!.parentElement!;
+	const originalToggle = selectHas('details:has([aria-label="Diff settings"])')!.parentElement!;
 
-	if (!isHidingWhitespace() || pageDetect.isEnterprise()) {
+	if (!isHidingWhitespace()) {
 		originalToggle.after(
 			<div className="diffbar-item d-flex">{createWhitespaceButton()}</div>,
 		);
@@ -143,5 +142,6 @@ void features.add(import.meta.url, {
 		onDiffFileLoad,
 	],
 	onlyAdditionalListeners: true,
+	deduplicate: false,
 	init: initCommitAndCompare,
 });

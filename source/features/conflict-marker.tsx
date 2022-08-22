@@ -38,7 +38,7 @@ function getPRConfig(prIcon: Element): PRConfig {
 		repo,
 		number,
 		link,
-		key: api.escapeKey(`${user}_${repo}_${number}`),
+		key: api.escapeKey(user, repo, number),
 	};
 }
 
@@ -73,20 +73,20 @@ async function init(): Promise<false | void> {
 
 void features.add(import.meta.url, {
 	include: [
-		pageDetect.isConversationList,
+		pageDetect.isIssueOrPRList,
 	],
 	exclude: [
-		pageDetect.isGlobalConversationList,
-		() => select.exists('.blankslate'),
+		pageDetect.isGlobalIssueOrPRList,
+		pageDetect.isBlank,
 	],
 	deduplicate: 'has-rgh-inner',
 	init,
 }, {
 	include: [
-		pageDetect.isGlobalConversationList,
+		pageDetect.isGlobalIssueOrPRList,
 	],
 	exclude: [
-		() => select.exists('.blankslate'),
+		pageDetect.isBlank,
 	],
 	init,
 });

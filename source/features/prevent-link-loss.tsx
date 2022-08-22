@@ -1,10 +1,10 @@
 import React from 'dom-chef';
 import select from 'select-dom';
-import delegate from 'delegate-it';
 import {AlertIcon} from '@primer/octicons-react';
 import debounceFn from 'debounce-fn';
 import * as pageDetect from 'github-url-detection';
 import * as textFieldEdit from 'text-field-edit';
+import delegate, {DelegateEvent} from 'delegate-it';
 
 import features from '.';
 import {
@@ -15,9 +15,10 @@ import {
 	discussionUrlRegex,
 	preventDiscussionLinkLoss,
 } from '../github-helpers/prevent-link-loss';
-import {createRghIssueLink} from '../helpers/rgh-issue-link';
 
-function handleButtonClick({delegateTarget: fixButton}: delegate.Event<MouseEvent, HTMLButtonElement>): void {
+const documentation = 'https://github.com/refined-github/refined-github/wiki/GitHub-markdown-linkifier-bug';
+
+function handleButtonClick({delegateTarget: fixButton}: DelegateEvent<MouseEvent, HTMLButtonElement>): void {
 	/* There's only one rich-text editor even when multiple fields are visible; the class targets it #4678 */
 	const field = fixButton.form!.querySelector('textarea.js-comment-field')!;
 	textFieldEdit.replace(field, prCommitUrlRegex, preventPrCommitLinkLoss);
@@ -29,7 +30,12 @@ function handleButtonClick({delegateTarget: fixButton}: delegate.Event<MouseEven
 function getUI(field: HTMLTextAreaElement): HTMLElement {
 	return select('.rgh-prevent-link-loss-container', field.form!) ?? (
 		<div className="flash flash-warn rgh-prevent-link-loss-container">
-			<AlertIcon/> Your link may be misinterpreted by GitHub (see {createRghIssueLink(2327)}).
+			<AlertIcon/>
+			{' Your link may be '}
+			<a href={documentation} target="_blank" rel="noopener noreferrer" data-hovercard-type="issue">
+				misinterpreted
+			</a>
+			{' by GitHub.'}
 			<button type="button" className="btn btn-sm primary flash-action rgh-prevent-link-loss">Fix link</button>
 		</div>
 	);
@@ -42,7 +48,7 @@ function isVulnerableToLinkLoss(value: string): boolean {
 		|| value !== value.replace(discussionUrlRegex, preventDiscussionLinkLoss);
 }
 
-const updateUI = debounceFn(({delegateTarget: field}: delegate.Event<Event, HTMLTextAreaElement>): void => {
+const updateUI = debounceFn(({delegateTarget: field}: DelegateEvent<Event, HTMLTextAreaElement>): void => {
 	if (!isVulnerableToLinkLoss(field.value)) {
 		getUI(field).remove();
 	} else if (pageDetect.isNewIssue() || pageDetect.isNewRelease() || pageDetect.isCompare()) {
@@ -58,18 +64,15 @@ const updateUI = debounceFn(({delegateTarget: field}: delegate.Event<Event, HTML
 	wait: 300,
 });
 
-function init(): Deinit[] {
-	return [
-		updateUI.cancel,
-		delegate(document, 'form:is(#new_issue, #new_release) textarea, form.js-new-comment-form textarea, textarea.comment-form-textarea', 'input', updateUI),
-		delegate(document, '.rgh-prevent-link-loss', 'click', handleButtonClick),
-	];
+function init(signal: AbortSignal): void {
+	delegate(document, 'form:is(#new_issue, #new_release) textarea, form.js-new-comment-form textarea, textarea.comment-form-textarea', 'input', updateUI, {signal});
+	delegate(document, '.rgh-prevent-link-loss', 'click', handleButtonClick, {signal});
 }
 
 void features.add(import.meta.url, {
 	include: [
 		pageDetect.hasRichTextEditor,
 	],
-	deduplicate: 'has-rgh-inner',
+	deduplicate: false,
 	init,
 });
